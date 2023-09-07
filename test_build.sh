@@ -22,6 +22,7 @@ mkdir -p "${user_workspace_dir}"
 # Directory가 존재하면 현재 커밋 넘버 확인
 if [ -d "${user_workspace_dir}/securityplatform" ]; then
     cd "${user_workspace_dir}/securityplatform"
+
     current_commit_num=$(git rev-parse HEAD)
 
     # 입력받은 commit_num이 main인 경우
@@ -36,6 +37,9 @@ if [ -d "${user_workspace_dir}/securityplatform" ]; then
             git checkout -f main
             git pull
         fi
+
+        # 현재 브랜치를 원격 main 브랜치와 추적하도록 설정
+        git branch --set-upstream-to=origin/main main
     # 입력받은 commit_num이 실제 commit number인 경우
     else
         # 현재 커밋 넘버와 요청된 커밋 넘버가 다른 경우 강제로 checkout
@@ -46,6 +50,7 @@ if [ -d "${user_workspace_dir}/securityplatform" ]; then
             git checkout -f $commit_num
         fi
     fi
+
 fi
 
 # 디렉토리가 존재하지 않으면 클론 진행
@@ -66,6 +71,8 @@ fi
 
 # 현재 커밋 번호 업데이트
 current_commit_num=$(git rev-parse HEAD)
+document_id=$(uuidgen)
+
 echo "commit hash[0:7]: ${current_commit_num:0:7}"
 
 # 현재 브랜치의 가장 최근 태그 가져오기
@@ -100,8 +107,21 @@ rm -rf $user_project_root_dir/build/*
 # 입력받은 parameter을 가지고 build.sh 실행.
 # 빌드 실패 시 종료 - exit code 1 -
 cd $user_project_root_dir
+result="building"
+if [ "$type" == "device" ]; then
+    node /workdir/app/upload_to_firebase.js "${document_id}" "${type}" "${current_commit_num:0:7}" "${device}" "${webdav_url}" "${result}" "${username}" "${toolchain}" "${standard}" "${rel}" "${hw}"
+else
+    node /workdir/app/upload_to_firebase.js "${document_id}" "${type}" "${current_commit_num:0:7}" "${toolchain}" "${webdav_url}" "${result}" "${username}" "${toolchain}" "${standard}" "${rel}" "${hw}"
+fi
+
 if ! ./build.sh --standard=$standard $rel_option $hw_option --toolchain=$toolchain release; then
+    result="failed"
     echo "Build failed. Exiting script."
+    if [ "$type" == "device" ]; then
+        node /workdir/app/upload_to_firebase.js "${document_id}" "${type}" "${current_commit_num:0:7}" "${device}" "${webdav_url}" "${result}" "${username}" "${toolchain}" "${standard}" "${rel}" "${hw}"
+    else
+        node /workdir/app/upload_to_firebase.js "${document_id}" "${type}" "${current_commit_num:0:7}" "${toolchain}" "${webdav_url}" "${result}" "${username}" "${toolchain}" "${standard}" "${rel}" "${hw}"
+    fi
     exit 1
 fi
 # 빌드 후 Package 생성
@@ -173,11 +193,20 @@ if [ -f "${user_project_root_dir}/build/$toolchain/$standard/Release/$package_na
     else
         echo "$package_name upload failed."
         result="failed"
-        exit 1
+        # exit 1
     fi
 else
     echo "$package_name does not exist. Skipping upload..."
-    exit 1
+    result="failed"
+    # exit 1
 fi
 
-node /workdir/app/upload_to_firebase.js "${current_commit_num:0:7}" "$device" "$webdav_url" "$result" "$username"
+if [ "$type" == "device" ]; then
+    node /workdir/app/upload_to_firebase.js "${document_id}" "${type}" "${current_commit_num:0:7}" "${device}" "${webdav_url}" "${result}" "${username}" "${toolchain}" "${standard}" "${rel}" "${hw}"
+else
+    node /workdir/app/upload_to_firebase.js "${document_id}" "${type}" "${current_commit_num:0:7}" "${toolchain}" "${webdav_url}" "${result}" "${username}" "${toolchain}" "${standard}" "${rel}" "${hw}"
+fi
+
+if [ "$result" == "failed" ]; then
+    exit 1
+fi
